@@ -1,0 +1,10 @@
+{
+	"refreshSeconds": 3,
+	"stageIndex": 0,
+	"stages": [
+		{"name":"dev", "configFile": "dev.conf"},
+		{"name":"test", "configFile": "test.conf"},
+		{"name":"preprod", "configFile": "preprod.conf"},
+		{"name":"prod", "configFile": "prod.conf"}
+	]	
+}
