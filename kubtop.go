@@ -127,7 +127,7 @@ func main() {
 		ui.Repaint()
 	})
 	ui.SetKeybinding("-", func() {
-		if config.RefreshSeconds > 0 {
+		if config.RefreshSeconds > 1 {
 			config.RefreshSeconds--
 			refreshText.SetText(fmt.Sprint(config.RefreshSeconds) + "s")
 			ui.Repaint()
