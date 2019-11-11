@@ -79,7 +79,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	var refreshLock sync.Mutex
 	var buf bytes.Buffer
 	refresh := func() {
@@ -87,28 +86,36 @@ func main() {
 		defer refreshLock.Unlock()
 
 		buf.Reset()
-		cmd := exec.Command("kubectl", "get", "pods", "--kubeconfig", config.Stages[config.StageIndex].ConfigFile)
+		cmd := exec.Command("kubectl", "get", "pods", "--kubeconfig",
+			config.Stages[config.StageIndex].ConfigFile)
 		cmd.Stdout = &buf
 		if err := cmd.Run(); err != nil {
-			return
+			getPodsText.SetText("")
+		} else {
+			getPodsText.SetText(buf.String())
 		}
-		getPodsText.SetText(buf.String())
 
 		buf.Reset()
-		cmd = exec.Command("kubectl", "top", "node", "--kubeconfig", config.Stages[config.StageIndex].ConfigFile)
+		cmd = exec.Command("kubectl", "top", "node", "--kubeconfig",
+			config.Stages[config.StageIndex].ConfigFile)
 		cmd.Stdout = &buf
 		if err := cmd.Run(); err != nil {
-			return
+			topNodeText.SetText("")
+		} else {
+			topNodeText.SetText(buf.String())
 		}
-		topNodeText.SetText(buf.String())
 
 		buf.Reset()
-		cmd = exec.Command("kubectl", "top", "pod", "--kubeconfig", config.Stages[config.StageIndex].ConfigFile)
+		cmd = exec.Command("kubectl", "top", "pod", "--kubeconfig",
+			config.Stages[config.StageIndex].ConfigFile)
 		cmd.Stdout = &buf
 		if err := cmd.Run(); err != nil {
-			return
+			topPodText.SetText("")
+		} else {
+			topPodText.SetText(buf.String())
 		}
-		topPodText.SetText(buf.String())
+
+		stageText.SetText(config.Stages[config.StageIndex].Name)
 		ui.Repaint()
 	}
 
@@ -135,7 +142,8 @@ func main() {
 	})
 	ui.SetKeybinding("n", func() {
 		config.StageIndex = (config.StageIndex + 1) % len(config.Stages)
-		stageText.SetText(config.Stages[config.StageIndex].Name)
+		stageText.SetText("changing to " +
+			config.Stages[config.StageIndex].Name + "...")
 		ui.Repaint()
 		refresh()
 	})
@@ -144,7 +152,8 @@ func main() {
 		if config.StageIndex < 0 {
 			config.StageIndex = len(config.Stages) - 1
 		}
-		stageText.SetText(config.Stages[config.StageIndex].Name)
+		stageText.SetText("changing to " +
+			config.Stages[config.StageIndex].Name + "...")
 		ui.Repaint()
 		refresh()
 	})
