@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/hako/durafmt"
+
+	"github.com/henkman/kubtop/k8s"
+	"github.com/jedib0t/go-pretty/table"
 	tui "github.com/marcusolsson/tui-go"
 )
 
@@ -23,6 +26,7 @@ func main() {
 	root := tui.NewHBox()
 
 	var config struct {
+		AllNamespaces  bool    `json:"allNamespaces"`
 		RefreshSeconds int     `json:"refreshSeconds`
 		StageIndex     int     `json:"stageIndex`
 		Stages         []Stage `json:"stages`
@@ -47,32 +51,19 @@ func main() {
 		fd.Close()
 	}
 
-	getPodsText := tui.NewLabel("")
-	topNodeText := tui.NewLabel("")
-	topPodText := tui.NewLabel("")
+	labels := []*tui.Label{}
+	boxes := []*tui.Box{}
+
 	refreshText := tui.NewLabel(fmt.Sprint(config.RefreshSeconds) + "s")
 	stageText := tui.NewLabel(config.Stages[config.StageIndex].Name)
+	allText := tui.NewLabel(map[bool]string{true: "all", false: "default"}[config.AllNamespaces])
 
-	getPodsBox := tui.NewVBox(getPodsText)
-	getPodsBox.SetBorder(true)
-
-	topNodeBox := tui.NewVBox(topNodeText)
-	topNodeBox.SetBorder(true)
-
-	topPodTextBox := tui.NewVBox(topPodText)
-	topPodTextBox.SetBorder(true)
-
-	infoBox := tui.NewHBox(refreshText, stageText)
+	infoBox := tui.NewHBox(refreshText, stageText, allText)
 	infoBox.SetBorder(true)
 
-	v := tui.NewVBox(
-		infoBox,
-		getPodsBox,
-		topNodeBox,
-		topPodTextBox,
-	)
-	scrollbox := tui.NewScrollArea(v)
-
+	v := tui.NewVBox()
+	base := tui.NewVBox(infoBox, v)
+	scrollbox := tui.NewScrollArea(base)
 	root.Append(scrollbox)
 
 	ui, err := tui.New(root)
@@ -85,36 +76,60 @@ func main() {
 		refreshLock.Lock()
 		defer refreshLock.Unlock()
 
+		nodes, err := k8s.GetNodeOverview(config.Stages[config.StageIndex].ConfigFile, &buf, config.AllNamespaces)
 		buf.Reset()
-		cmd := exec.Command("kubectl", "get", "pods", "--kubeconfig",
-			config.Stages[config.StageIndex].ConfigFile)
-		cmd.Stdout = &buf
-		if err := cmd.Run(); err != nil {
-			getPodsText.SetText("")
-		} else {
-			getPodsText.SetText(buf.String())
+		if err != nil {
+			for i := 0; i < v.Length(); i++ {
+				v.Remove(v.Length() - 1)
+			}
+			allText.SetText(err.Error())
+			return
 		}
 
-		buf.Reset()
-		cmd = exec.Command("kubectl", "top", "node", "--kubeconfig",
-			config.Stages[config.StageIndex].ConfigFile)
-		cmd.Stdout = &buf
-		if err := cmd.Run(); err != nil {
-			topNodeText.SetText("")
-		} else {
-			topNodeText.SetText(buf.String())
+		if len(nodes) > len(boxes) {
+			d := len(nodes) - len(boxes)
+			for i := 0; i < d; i++ {
+				label := tui.NewLabel("")
+				box := tui.NewVBox(label)
+				box.SetBorder(true)
+				labels = append(labels, label)
+				boxes = append(boxes, box)
+				v.Append(box)
+			}
+		} else if len(nodes) < len(boxes) {
+			d := len(boxes) - len(nodes)
+			for i := 0; i < d; i++ {
+				v.Remove(v.Length() - 1)
+			}
+			boxes = boxes[:len(nodes)]
+			labels = labels[:len(nodes)]
 		}
 
-		buf.Reset()
-		cmd = exec.Command("kubectl", "top", "pod", "--kubeconfig",
-			config.Stages[config.StageIndex].ConfigFile)
-		cmd.Stdout = &buf
-		if err := cmd.Run(); err != nil {
-			topPodText.SetText("")
-		} else {
-			topPodText.SetText(buf.String())
+		pcs := make([]int, len(nodes))
+		for i, node := range nodes {
+			pcs[i] = len(node.Pods)
 		}
 
+		for i, node := range nodes {
+			boxes[i].SetTitle(node.Name + fmt.Sprintf(" [CPU = %dm(%d%%) Mem = %dMi(%d%%)]",
+				node.MilliCPU, node.CPUPercent, node.MemoryMi, node.MemoryPercent))
+
+			t := table.NewWriter()
+			t.AppendHeader(table.Row{"Name", "Phase", "Since", "CPU", "Memory",
+				"Limit", "Image"})
+			for _, pod := range node.Pods {
+				since := durafmt.ParseShort(time.Since(pod.PhaseStart)).LimitFirstN(2)
+				t.AppendRow(table.Row{
+					pod.Name, pod.Phase, since, fmt.Sprint(pod.MilliCPU, "m"),
+					fmt.Sprint(pod.MemoryMi, "Mi"), fmt.Sprint(pod.MemoryLimitMi, "Mi"), pod.Image,
+				})
+			}
+			t.Style().Options.DrawBorder = false
+			t.Style().Options.SeparateHeader = false
+			t.Style().Options.SeparateColumns = false
+			labels[i].SetText(t.Render())
+		}
+		allText.SetText(map[bool]string{true: "all", false: "default"}[config.AllNamespaces])
 		stageText.SetText(config.Stages[config.StageIndex].Name)
 		ui.Repaint()
 	}
@@ -122,6 +137,12 @@ func main() {
 	ui.SetKeybinding("Esc", func() { ui.Quit() })
 	ui.SetKeybinding("c", func() { ui.Quit() })
 	ui.SetKeybinding("q", func() { ui.Quit() })
+	ui.SetKeybinding("a", func() {
+		config.AllNamespaces = !config.AllNamespaces
+		allText.SetText("changing to " + map[bool]string{true: "all", false: "default"}[config.AllNamespaces] + " ...")
+		ui.Repaint()
+		refresh()
+	})
 	ui.SetKeybinding("Up", func() { scrollbox.Scroll(0, -1) })
 	ui.SetKeybinding("Down", func() { scrollbox.Scroll(0, 1) })
 	ui.SetKeybinding("Left", func() { scrollbox.Scroll(-1, 0) })

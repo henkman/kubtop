@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -34,13 +33,32 @@ type PodDetails struct {
 	MemoryLimitMi int
 	Phase         string
 	PhaseStart    time.Time
+}
+
+type Pod struct {
+	Name          string
+	MilliCPU      int
+	MemoryMi      int
+	MemoryLimitMi int
+	Image         string
+	Phase         string
+	PhaseStart    time.Time
 	IP            string
+}
+type Node struct {
+	Name          string
+	MilliCPU      int
+	CPUPercent    int
+	MemoryMi      int
+	MemoryPercent int
+	Pods          []Pod
 }
 
 var (
-	reTopNode  = regexp.MustCompile(`(?m)^(\S+)\s*([0-9]+)m\s*([0-9]+)%\s*([0-9]+)Mi\s*([0-9]+)%`)
-	reTopPod   = regexp.MustCompile(`(?m)^(\S+)\s*(\S+)\s*([0-9]+)m\s*([0-9]+)Mi`)
-	reMemoryMi = regexp.MustCompile(`([0-9]+)Mi`)
+	reTopNode   = regexp.MustCompile(`(?m)^(\S+)\s*([0-9]+)m\s*([0-9]+)%\s*([0-9]+)Mi\s*([0-9]+)%`)
+	reTopPodAll = regexp.MustCompile(`(?m)^(\S+)\s*(\S+)\s*([0-9]+)m\s*([0-9]+)Mi`)
+	reTopPod    = regexp.MustCompile(`(?m)^(\S+)\s*([0-9]+)m\s*([0-9]+)Mi`)
+	reMemoryMi  = regexp.MustCompile(`([0-9]+)Mi`)
 )
 
 func GetTopNode(kubeconfig string, buffer *bytes.Buffer) ([]TopNode, error) {
@@ -82,38 +100,72 @@ func GetTopNode(kubeconfig string, buffer *bytes.Buffer) ([]TopNode, error) {
 	return nodes, nil
 }
 
-func GetTopPods(kubeconfig string, buffer *bytes.Buffer) ([]TopPod, error) {
-	cmd := exec.Command("kubectl", "top", "pods", "-A", "--kubeconfig", kubeconfig)
+func GetTopPods(kubeconfig string, buffer *bytes.Buffer, allNamespaces bool) ([]TopPod, error) {
+	var cmd *exec.Cmd
+	if allNamespaces {
+		cmd = exec.Command("kubectl", "top", "pods", "-A", "--kubeconfig", kubeconfig)
+	} else {
+		cmd = exec.Command("kubectl", "top", "pods", "--kubeconfig", kubeconfig)
+	}
 	cmd.Stdout = buffer
 	if err := cmd.Run(); err != nil {
 		return nil, err
 	}
-	m := reTopPod.FindAllStringSubmatch(buffer.String(), -1)
+	var m [][]string
+	if allNamespaces {
+		m = reTopPodAll.FindAllStringSubmatch(buffer.String(), -1)
+	} else {
+		m = reTopPod.FindAllStringSubmatch(buffer.String(), -1)
+	}
 	if m == nil {
 		return nil, errors.New("top pods did not contain any pods")
 	}
 	nodes := make([]TopPod, len(m))
-	for i, sm := range m {
-		milliCPU, err := strconv.Atoi(sm[3])
-		if err != nil {
-			return nil, err
+	if allNamespaces {
+		for i, sm := range m {
+			milliCPU, err := strconv.Atoi(sm[3])
+			if err != nil {
+				return nil, err
+			}
+			memoryMi, err := strconv.Atoi(sm[4])
+			if err != nil {
+				return nil, err
+			}
+			nodes[i] = TopPod{
+				Namespace: sm[1],
+				Name:      sm[2],
+				MilliCPU:  milliCPU,
+				MemoryMi:  memoryMi,
+			}
 		}
-		memoryMi, err := strconv.Atoi(sm[4])
-		if err != nil {
-			return nil, err
-		}
-		nodes[i] = TopPod{
-			Namespace: sm[1],
-			Name:      sm[2],
-			MilliCPU:  milliCPU,
-			MemoryMi:  memoryMi,
+	} else {
+		for i, sm := range m {
+			milliCPU, err := strconv.Atoi(sm[2])
+			if err != nil {
+				return nil, err
+			}
+			memoryMi, err := strconv.Atoi(sm[3])
+			if err != nil {
+				return nil, err
+			}
+			nodes[i] = TopPod{
+				Namespace: "",
+				Name:      sm[1],
+				MilliCPU:  milliCPU,
+				MemoryMi:  memoryMi,
+			}
 		}
 	}
 	return nodes, nil
 }
 
-func GetPodDetails(kubeconfig string, buffer *bytes.Buffer) ([]PodDetails, error) {
-	cmd := exec.Command("kubectl", "get", "pods", "-A", "-o", "json", "--kubeconfig", kubeconfig)
+func GetPodDetails(kubeconfig string, buffer *bytes.Buffer, allNamespaces bool) ([]PodDetails, error) {
+	var cmd *exec.Cmd
+	if allNamespaces {
+		cmd = exec.Command("kubectl", "get", "pods", "-A", "-o", "json", "--kubeconfig", kubeconfig)
+	} else {
+		cmd = exec.Command("kubectl", "get", "pods", "-o", "json", "--kubeconfig", kubeconfig)
+	}
 	cmd.Stdout = buffer
 	if err := cmd.Run(); err != nil {
 		return nil, err
@@ -137,7 +189,6 @@ func GetPodDetails(kubeconfig string, buffer *bytes.Buffer) ([]PodDetails, error
 			} `json:"spec"`
 			Status struct {
 				Phase     string    `json:"phase"`
-				PodIP     string    `json:"podIP"`
 				StartTime time.Time `json:"startTime"`
 			} `json:"status"`
 		} `json:"items"`
@@ -145,14 +196,13 @@ func GetPodDetails(kubeconfig string, buffer *bytes.Buffer) ([]PodDetails, error
 	if err := json.NewDecoder(buffer).Decode(&raw); err != nil {
 		return nil, err
 	}
-	fmt.Println(raw)
 	pods := make([]PodDetails, len(raw.Items))
 	for i, item := range raw.Items {
 		memoryLimitMi := -1
 		m := reMemoryMi.FindStringSubmatch(item.Spec.Containers[0].Resources.Limits.Memory)
 		if m != nil {
 			mm, err := strconv.Atoi(m[1])
-			if err != nil {
+			if err == nil {
 				memoryLimitMi = mm
 			}
 		}
@@ -164,9 +214,73 @@ func GetPodDetails(kubeconfig string, buffer *bytes.Buffer) ([]PodDetails, error
 			MemoryLimitMi: memoryLimitMi,
 			Phase:         item.Status.Phase,
 			PhaseStart:    item.Status.StartTime,
-			IP:            item.Status.PodIP,
 		}
 	}
 	return pods, nil
 
+}
+
+func GetNodeOverview(kubeconfig string, buffer *bytes.Buffer, allNamespaces bool) ([]Node, error) {
+	topnodes, err := GetTopNode(kubeconfig, buffer)
+	if err != nil {
+		return nil, err
+	}
+	buffer.Reset()
+	toppods, err := GetTopPods(kubeconfig, buffer, allNamespaces)
+	if err != nil {
+		return nil, err
+	}
+	buffer.Reset()
+	poddetails, err := GetPodDetails(kubeconfig, buffer, allNamespaces)
+	if err != nil {
+		return nil, err
+	}
+	nodes := make([]Node, len(topnodes))
+	for i, tn := range topnodes {
+		nodes[i] = Node{
+			Name:          tn.Name,
+			MilliCPU:      tn.MilliCPU,
+			CPUPercent:    tn.CPUPercent,
+			MemoryMi:      tn.MemoryMi,
+			MemoryPercent: tn.MemoryPercent,
+			Pods:          []Pod{},
+		}
+	}
+
+	addPodToNode := func(p Pod, nodeName string) {
+		for i, node := range nodes {
+			if node.Name == nodeName {
+				nodes[i].Pods = append(nodes[i].Pods, p)
+				break
+			}
+		}
+	}
+	getTopPodByName := func(name string) (TopPod, error) {
+		for _, tp := range toppods {
+			if tp.Name == name {
+				return tp, nil
+			}
+		}
+		return TopPod{}, errors.New("toppod " + name + " not found")
+	}
+
+	for _, pd := range poddetails {
+		tp, err := getTopPodByName(pd.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		pod := Pod{
+			Name:          pd.Name,
+			MilliCPU:      tp.MilliCPU,
+			MemoryMi:      tp.MemoryMi,
+			MemoryLimitMi: pd.MemoryLimitMi,
+			Image:         pd.Image,
+			Phase:         pd.Phase,
+			PhaseStart:    pd.PhaseStart,
+		}
+		addPodToNode(pod, pd.NodeName)
+	}
+
+	return nodes, nil
 }

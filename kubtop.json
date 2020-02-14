@@ -1,5 +1,5 @@
 {
-	"refreshSeconds": 3,
+	"refreshSeconds": 8,
 	"stageIndex": 0,
 	"stages": [
 		{"name":"dev", "configFile": "dev.conf"},
