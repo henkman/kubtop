@@ -267,9 +267,8 @@ func GetNodeOverview(kubeconfig string, buffer *bytes.Buffer, allNamespaces bool
 	for _, pd := range poddetails {
 		tp, err := getTopPodByName(pd.Name)
 		if err != nil {
-			return nil, err
+			continue
 		}
-
 		pod := Pod{
 			Name:          pd.Name,
 			MilliCPU:      tp.MilliCPU,

@@ -82,7 +82,6 @@ func main() {
 			for i := 0; i < v.Length(); i++ {
 				v.Remove(v.Length() - 1)
 			}
-			allText.SetText(err.Error())
 			return
 		}
 
