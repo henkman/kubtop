@@ -79,8 +79,8 @@ func main() {
 		nodes, err := k8s.GetNodeOverview(config.Stages[config.StageIndex].ConfigFile, &buf, config.AllNamespaces)
 		buf.Reset()
 		if err != nil {
-			for i := 0; i < v.Length(); i++ {
-				v.Remove(v.Length() - 1)
+			for _, label := range labels {
+				label.SetText("")
 			}
 			return
 		}
@@ -102,11 +102,6 @@ func main() {
 			}
 			boxes = boxes[:len(nodes)]
 			labels = labels[:len(nodes)]
-		}
-
-		pcs := make([]int, len(nodes))
-		for i, node := range nodes {
-			pcs[i] = len(node.Pods)
 		}
 
 		for i, node := range nodes {
