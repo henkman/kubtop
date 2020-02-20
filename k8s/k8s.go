@@ -265,18 +265,17 @@ func GetNodeOverview(kubeconfig string, buffer *bytes.Buffer, allNamespaces bool
 	}
 
 	for _, pd := range poddetails {
-		tp, err := getTopPodByName(pd.Name)
-		if err != nil {
-			continue
-		}
 		pod := Pod{
 			Name:          pd.Name,
-			MilliCPU:      tp.MilliCPU,
-			MemoryMi:      tp.MemoryMi,
 			MemoryLimitMi: pd.MemoryLimitMi,
 			Image:         pd.Image,
 			Phase:         pd.Phase,
 			PhaseStart:    pd.PhaseStart,
+		}
+		tp, err := getTopPodByName(pd.Name)
+		if err == nil {
+			pod.MilliCPU = tp.MilliCPU
+			pod.MemoryMi = tp.MemoryMi
 		}
 		addPodToNode(pod, pd.NodeName)
 	}
