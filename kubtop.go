@@ -105,11 +105,11 @@ func main() {
 		}
 
 		for i, node := range nodes {
-			boxes[i].SetTitle(node.Name + fmt.Sprintf(" [CPU = %dm(%d%%) Mem = %dMi(%d%%)]",
+			boxes[i].SetTitle(node.Name + fmt.Sprintf(" [CPU = %dm(%d%%) MEM = %dMi(%d%%)]",
 				node.MilliCPU, node.CPUPercent, node.MemoryMi, node.MemoryPercent))
 
 			t := table.NewWriter()
-			t.AppendHeader(table.Row{"Name", "Phase", "Since", "CPU", "Memory",
+			t.AppendHeader(table.Row{"Name", "Phase", "Since", "CPU", "Mem",
 				"Limit", "Image"})
 			for _, pod := range node.Pods {
 				since := durafmt.ParseShort(time.Since(pod.PhaseStart)).LimitFirstN(2)
