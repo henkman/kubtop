@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -34,19 +33,16 @@ func main() {
 	{
 		exe, err := os.Executable()
 		if err != nil {
-			fmt.Println(err)
-			return
+			panic(err)
 		}
 		dir := filepath.Dir(exe)
 		fd, err := os.Open(filepath.Join(dir, "kubtop.json"))
 		if err != nil {
-			fmt.Println(err)
-			return
+			panic(err)
 		}
 		if err := json.NewDecoder(fd).Decode(&config); err != nil {
 			fd.Close()
-			fmt.Println(err)
-			return
+			panic(err)
 		}
 		fd.Close()
 	}
@@ -68,7 +64,7 @@ func main() {
 
 	ui, err := tui.New(root)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	var refreshLock sync.Mutex
 	var buf bytes.Buffer
@@ -188,6 +184,6 @@ func main() {
 	}()
 
 	if err := ui.Run(); err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 }
