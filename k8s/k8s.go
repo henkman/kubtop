@@ -58,7 +58,7 @@ var (
 	reTopNode   = regexp.MustCompile(`(?m)^(\S+)\s*([0-9]+)m\s*([0-9]+)%\s*([0-9]+)Mi\s*([0-9]+)%`)
 	reTopPodAll = regexp.MustCompile(`(?m)^(\S+)\s*(\S+)\s*([0-9]+)m\s*([0-9]+)Mi`)
 	reTopPod    = regexp.MustCompile(`(?m)^(\S+)\s*([0-9]+)m\s*([0-9]+)Mi`)
-	reMemoryMi  = regexp.MustCompile(`([0-9]+)Mi`)
+	reMemoryMi  = regexp.MustCompile(`([0-9]+)(Mi|Gi)`)
 )
 
 func GetTopNode(kubeconfig string, buffer *bytes.Buffer) ([]TopNode, error) {
@@ -203,7 +203,11 @@ func GetPodDetails(kubeconfig string, buffer *bytes.Buffer, allNamespaces bool) 
 		if m != nil {
 			mm, err := strconv.Atoi(m[1])
 			if err == nil {
-				memoryLimitMi = mm
+				if m[2] == "Gi" {
+					memoryLimitMi = mm * 1024
+				} else {
+					memoryLimitMi = mm
+				}
 			}
 		}
 		pods[i] = PodDetails{
